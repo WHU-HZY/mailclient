@@ -5,7 +5,10 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QLineEdit, Q
 from email.mime.text import MIMEText
 from email.parser import Parser
 from smtp_lib import send_email_via_smtp,receive_email_via_pop
-
+import pathlib
+import os
+from PyQt5.QtCore import QTimer, Qt
+DB_PATH = os.path.join(pathlib.Path(__file__).parent.absolute(), 'email_client.db')
 
 class LoginWindow(QMainWindow):
     def __init__(self):
@@ -68,7 +71,7 @@ class LoginWindow(QMainWindow):
         self.setCentralWidget(centralWidget)
 
     def initDB(self):
-        self.conn = sqlite3.connect('email_client.db')
+        self.conn = sqlite3.connect(DB_PATH)
         self.cursor = self.conn.cursor()
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS accounts (
@@ -76,6 +79,16 @@ class LoginWindow(QMainWindow):
                 password TEXT,
                 smtp_server TEXT,
                 pop_server TEXT
+            )
+        ''')
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS emails (
+                email_id TEXT PRIMARY KEY,
+                sender TEXT,
+                recipient TEXT,
+                subject TEXT,
+                body TEXT,
+                date TEXT
             )
         ''')
         self.conn.commit()
@@ -103,7 +116,16 @@ class EmailClientWindow(QMainWindow):
         self.password = password
         self.smtp_server = smtp_server
         self.pop_server = pop_server
+        self.conn = sqlite3.connect(DB_PATH)
+        self.cursor = self.conn.cursor()
         self.initUI()
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.refreshInbox)
+        self.timer.start(30000)  # 每隔1秒触发一次timeout信号
+        self.statu = 'New'
+        self.label1=QLabel(self)
+        self.label1.setText(self.email)
+        self.label1.setGeometry(23, 1, 200, 50)
 
     def initUI(self):
         self.setWindowTitle('邮件客户端')
@@ -150,6 +172,10 @@ class EmailClientWindow(QMainWindow):
         self.refreshButton.clicked.connect(self.refreshInbox)
         self.mailList = QListWidget()
         self.mailList.clicked.connect(self.displayEmailContent)
+        # 把数据库中所有的邮件都显示在列表中
+        saved_emails = self.cursor.execute('SELECT * FROM emails').fetchall()
+        for message in saved_emails:
+            self.mailList.addItem(f"Subject: {message[3]}  ,From: {message[1]}  ,Date: {message[5]}  ,Content: {message[4]}")
 
         self.mailListLayout.addWidget(self.refreshButton)
         self.mailListLayout.addWidget(self.mailList)
@@ -157,11 +183,15 @@ class EmailClientWindow(QMainWindow):
         self.mailContent = QTextEdit()  # 邮件内容展示区域
         self.mailContent.setReadOnly(True)  # 设置为只读
 
-        layout.addLayout(self.mailListLayout, 1)  # 添加邮件列表布局
-        layout.addWidget(self.mailContent, 2)  # 添加邮件内容展示区域，更大的比重
+
+        layout.addLayout(self.mailListLayout, 3)  # 添加邮件列表布局
+        layout.addWidget(self.mailContent, 5)  # 添加邮件内容展示区域，更大的比重
 
         self.inboxTab.setLayout(layout)
         self.tabWidget.addTab(self.inboxTab, "收件箱")
+        # 在收件箱最下面加一行小字，显示当前登录的邮箱地址和刷新状态
+        
+
 
     def displayEmailContent(self, index):
         email_id = index.row()  # 获取选中邮件的序号
@@ -200,8 +230,9 @@ class EmailClientWindow(QMainWindow):
         self.bodyTextEdit.clear()
 
     def refreshInbox(self):
+        print("refreshing inbox...")
+        saved_email_ids = self.cursor.execute('SELECT email_id FROM emails').fetchall()
         try:
-            self.mailList.clear()
             pop_conn = poplib.POP3(self.pop_server)  # 更改为您的POP服务器
             pop_conn.user(self.email)
             pop_conn.pass_(self.password)
@@ -210,18 +241,24 @@ class EmailClientWindow(QMainWindow):
             message_count, _ = pop_conn.stat()
 
             # 获取最新的几封邮件
-            num_messages = min(100, message_count)  # 例如，获取最新的5封邮件
+            num_messages = min(255, message_count)  # 例如，获取最新的5封邮件
             for i in range(message_count, message_count - num_messages, -1):
+                print(f"正在获取第{i}封邮件")
                 try:
                     # 获取邮件的头部信息
                     response, lines, octets = pop_conn.top(i, 0)
                     message_content = b'\n'.join(lines).decode('utf-8')
                     message = Parser().parsestr(message_content)
+                    if (message['message-id'],) in saved_email_ids:
+                        break
                     print(message)
-                    self.mailList.addItem(f"Subject: {message['subject']}  ,From: {message['from']}  ,Date: {message['date']}  ,Content: {message.get_payload()}")
+                    self.cursor.execute('INSERT INTO emails (email_id, sender, recipient, subject, body, date) VALUES (?, ?, ?, ?, ?, ?)', (message['message-id'], message['from'], message['to'], message['subject'], message.get_payload(), message['date']))
+                    # self.mailList.addItem(f"Subject: {message['subject']}  ,From: {message['from']}  ,Date: {message['date']}  ,Content: {message.get_payload()}")
+                    self.mailList.insertItem(0, f"Subject: {message['subject']}  ,From: {message['from']}  ,Date: {message['date']}  ,Content: {message.get_payload()}")
                 except Exception as e:
                     print(f"获取邮件失败: {e}")
-            pop_conn.quit()
+            self.conn.commit() # 把接收到的最新邮件保存到数据库
+            pop_conn.quit() # 退出
         except Exception as e:
             print(f"邮件接收失败: {e}")
 
