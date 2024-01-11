@@ -1,4 +1,4 @@
-import poplib
+import pop_lib
 import sys
 import sqlite3
 from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QLineEdit, QLabel, QVBoxLayout, QWidget, QTextEdit, QTabWidget, QListWidget, QHBoxLayout
@@ -233,7 +233,7 @@ class EmailClientWindow(QMainWindow):
         print("refreshing inbox...")
         saved_email_ids = self.cursor.execute('SELECT email_id FROM emails').fetchall()
         try:
-            pop_conn = poplib.POP3(self.pop_server)  # 更改为您的POP服务器
+            pop_conn = pop_lib.POP3(self.pop_server)  # 更改为您的POP服务器
             pop_conn.user(self.email)
             pop_conn.pass_(self.password)
 
