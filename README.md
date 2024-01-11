@@ -14,3 +14,8 @@ Author: HZY
   * base
   * sys
   * socket  
+
+## USE
+```
+python main.py
+```
