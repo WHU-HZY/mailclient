@@ -2,7 +2,7 @@
 
 Author: HZY
 
----
+## REQUIREMENTS
 
 * 使用PyQt5完成的建议邮件收发客户端，其中自己实现了smtp协议，使用了pop协议的库
 * 目前是初代版本
